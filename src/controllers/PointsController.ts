@@ -1,8 +1,13 @@
 import knex from "../database/connection";
 import { Request, Response } from "express";
+import dotenv from "dotenv";
 
 export default class PointsControler {
   async index(request: Request, response: Response) {
+    const api_path =
+      process.env.NODE_FUNC === "expo"
+        ? process.env.API_URL_EXPO
+        : process.env.API_URL;
     const { city, uf, items } = request.query;
     const parsedItems = String(items)
       .split(",")
@@ -14,8 +19,14 @@ export default class PointsControler {
       .where("city", String(city))
       .where("uf", String(uf))
       .distinct("points.*");
+    const serializedPoints = points.map((point) => {
+      return {
+        ...point,
+        image_url: `${api_path}/uploads/${point.image}`,
+      };
+    });
 
-    return response.json(points);
+    return response.json(serializedPoints);
   }
 
   async create(request: Request, response: Response) {
@@ -30,8 +41,9 @@ export default class PointsControler {
       items,
     } = request.body;
     const trx = await knex.transaction();
+
     const point = {
-      image: "image-null",
+      image: request.file.filename ? request.file.filename : "image-null",
       name,
       email,
       whatsapp,
@@ -42,12 +54,15 @@ export default class PointsControler {
     };
     const insertedIds = await trx("points").insert(point);
     const point_id = insertedIds[0];
-    const point_items = items.map((item_id: number) => {
-      return {
-        item_id,
-        point_id,
-      };
-    });
+    const point_items = items
+      .split(",")
+      .map((item: string) => Number(item.trim()))
+      .map((item_id: number) => {
+        return {
+          item_id,
+          point_id,
+        };
+      });
     await trx("point_items").insert(point_items);
     await trx.commit();
     return response.json({
@@ -57,6 +72,10 @@ export default class PointsControler {
   }
 
   async show(request: Request, response: Response) {
+    const api_path =
+      process.env.NODE_FUNC === "expo"
+        ? process.env.API_URL_EXPO
+        : process.env.API_URL;
     const { id } = request.params;
 
     const point = await knex("points").where("id", id).first();
@@ -64,9 +83,14 @@ export default class PointsControler {
       return response.status(400).json({ message: "Point Not Found" });
     }
 
+    const serializedPoint = {
+      ...point,
+      image_url: `${api_path}/uploads/${point.image}`,
+    };
+
     const items = await knex("items")
       .join("point_items", "items.id", "=", "point_items.item_id")
       .where("point_items.point_id", id);
-    return response.json({ point, items });
+    return response.json({ point: serializedPoint, items });
   }
 }
